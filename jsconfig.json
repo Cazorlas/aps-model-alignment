@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES6",
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "checkJs": false,
+    "allowJs": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": false,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "*": ["node_modules/*", "wwwroot/*"]
+    },
+    "types": ["forge-viewer"]
+  },
+  "include": [
+    "wwwroot/**/*",
+    "routes/**/*",
+    "services/**/*",
+    "*.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ],
+  "typeAcquisition": {
+    "enable": true,
+    "include": ["three", "jquery", "forge-viewer"]
+  }
+}
