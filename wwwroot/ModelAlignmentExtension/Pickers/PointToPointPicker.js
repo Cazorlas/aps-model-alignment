@@ -419,6 +419,7 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
     clearAll() {
         this.clearTags();
         this.clearLine();
+        this.clearDistTag();
     }
 
     /**
@@ -499,6 +500,70 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
             lineGeo.computeBoundingBox();
             this.prevLine.computeLineDistances();
         }
+    }
+
+    /**
+     * Updates both From and To points and refreshes all visual elements accordingly.
+     * Stores the provided point data, updates tag positions, draws connection lines,
+     * calculates and displays distance measurements between the points. This method
+     * provides a comprehensive update of the picker's visual state.
+     * 
+     * @param {Object|null} fromPoint - The From point data object, or null to clear
+     * @param {THREE.Vector3} fromPoint.point - The 3D world position of the From point
+     * @param {string} fromPoint.modelId - The ID of the model containing the From point
+     * @param {Object|null} toPoint - The To point data object, or null to clear
+     * @param {THREE.Vector3} toPoint.point - The 3D world position of the To point
+     * @param {string} toPoint.modelId - The ID of the model containing the To point
+     * 
+     * @example
+     * // Update both points with new data
+     * const fromData = {
+     *   point: new THREE.Vector3(0, 0, 0),
+     *   modelId: '5'
+     * };
+     * const toData = {
+     *   point: new THREE.Vector3(10, 5, 0),
+     *   modelId: '5'
+     * };
+     * picker.updatePoints(fromData, toData);
+     * 
+     * // Clear the From point while keeping the To point
+     * picker.updatePoints(null, toData);
+     * 
+     * // Clear both points
+     * picker.updatePoints(null, null);
+     */
+    updatePoints(fromPoint, toPoint) {
+        this.fromPoint = fromPoint ? { point: fromPoint.point.clone(), modelId: fromPoint.modelId } : { point: null, modelId: null };
+        this.toPoint = toPoint ? { point: toPoint.point.clone(), modelId: toPoint.modelId } : { point: null, modelId: null };
+
+        // console.log('PointToPointPicker: updatePoints', this.fromPoint?.point, this.toPoint?.point);
+
+        this.drawTag('From', this.fromPoint?.point || null);
+        this.drawTag('To', this.toPoint?.point || null);
+
+        if (this.fromPoint?.point && this.toPoint?.point) {
+            this.updateLine(this.fromPoint.point, this.toPoint.point);
+
+            const offset = new THREE.Vector3().subVectors(this.toPoint.point, this.fromPoint.point);
+            const dx = Math.abs(offset.x);
+            const dy = Math.abs(offset.y);
+            const dz = Math.abs(offset.z);
+            const dxConverted = this.unitHandler ? this.unitHandler.lengthToString(dx) : dx;
+            const dyConverted = this.unitHandler ? this.unitHandler.lengthToString(dy) : dy;
+            const dzConverted = this.unitHandler ? this.unitHandler.lengthToString(dz) : dz;
+            const text = `ΔX: ${dxConverted}  ΔY: ${dyConverted}  ΔZ: ${dzConverted}`;
+            this.distTag.setText(text);
+
+            // Position the dist tag at the midpoint between fromPoint and toPoint
+            const midPoint = new THREE.Vector3().addVectors(this.fromPoint.point, this.toPoint.point).multiplyScalar(0.5);
+            this.distTag.setWorld(midPoint);
+        } else {
+            this.clearLine();
+            this.clearDistTag();
+        }
+
+        this.tagOverlay?.refresh();
     }
 
     /**

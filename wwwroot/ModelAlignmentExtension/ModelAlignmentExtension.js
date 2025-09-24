@@ -419,10 +419,24 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
             duration: 1500,
             easing: easeInOutCubic,
             onUpdate: this.onModelTransformed
-         });
+        });
         this.syncAccFromModel(model);
 
         this.dispatchEvent({ type: Events.ModelTransformed, modelId: model.id });
+    }
+
+    async animatePickerPoints(fromPoint, toPoint) {
+        if (!this.pointToPointPicker) return;
+
+        const target = toPoint.clone();
+
+        await TransformUtils.animatePointAsync(fromPoint.clone(), target, {
+            duration: 1500,
+            easing: easeInOutCubic,
+            onUpdate: ({ t, point }) => {
+                this.pointToPointPicker.updatePoints({ point }, { point: target });
+            }
+        });
     }
 
     /**

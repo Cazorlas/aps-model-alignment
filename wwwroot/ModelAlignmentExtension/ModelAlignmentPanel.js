@@ -821,7 +821,9 @@ class ModelAlignmentPanel extends Autodesk.Viewing.UI.DockingPanel {
         const model = ModelUtils.findModelById(this.viewer, this.selectedModelId);
         if (!model) return;
 
-        this.host.clearPicks(); // clear any active pick handlers
+        // this.host.clearPicks(); // clear any active pick handlers
+
+        this.host.animatePickerPoints(this.fromPoint, this.toPoint);
 
         // Compute translation vector
         const delta = new THREE.Vector3().subVectors(this.toPoint, this.fromPoint);

@@ -157,7 +157,7 @@ class TransformUtils {
         }
 
         opts.duration = opts.duration || 400;
-        if(opts.duration <= 0) opts.duration = 1; // prevent div/0
+        if (opts.duration <= 0) opts.duration = 1; // prevent div/0
 
         return new Promise((resolve) => {
             // Compute start/end positions
@@ -241,7 +241,7 @@ class TransformUtils {
         }
 
         opts.duration = opts.duration || 400;
-        if(opts.duration <= 0) opts.duration = 1; // prevent div/0
+        if (opts.duration <= 0) opts.duration = 1; // prevent div/0
 
         return new Promise((resolve) => {
             // Start placement
@@ -327,7 +327,7 @@ class TransformUtils {
         opts.animate = !!opts.animate;
 
         opts.duration = opts.duration || 400;
-        if(opts.duration <= 0) opts.duration = 1; // prevent div/0
+        if (opts.duration <= 0) opts.duration = 1; // prevent div/0
 
         return new Promise(async (resolve) => {
             if (opts.animate) {
@@ -428,11 +428,11 @@ class TransformUtils {
 
         let animHandle = null;
         if (!opts.easing) {
-            opts.easing = (t) => ( t * t * (3 - 2 * t));
+            opts.easing = (t) => (t * t * (3 - 2 * t));
         }
 
         opts.duration = opts.duration || 600;
-        if(opts.duration <= 0) opts.duration = 1; // prevent div/0
+        if (opts.duration <= 0) opts.duration = 1; // prevent div/0
 
         return new Promise((resolve) => {
             const startM = (mFrom || TransformUtils.getPlacementMatrix(model)).clone();
@@ -485,6 +485,83 @@ class TransformUtils {
         });
     }
 
+    /**
+     * Animates a THREE.Vector3 point from start position to end position with smooth interpolation.
+     * Performs linear interpolation between two 3D points over a specified duration with configurable
+     * easing functions. Useful for animating camera positions, target points, or any 3D coordinates
+     * that need smooth transitions independent of model transformations.
+     * 
+     * @async
+     * @param {THREE.Vector3} start - The starting 3D position vector
+     * @param {THREE.Vector3} end - The target 3D position vector to animate to
+     * @param {Object} [opts={}] - Animation configuration options
+     * @param {number} [opts.duration=600] - Animation duration in milliseconds
+     * @param {Function|null} [opts.easing=null] - Easing function that takes normalized time (0-1) and returns eased value. If null, defaults to smoothstep easing
+     * @param {Function|null} [opts.onUpdate=null] - Callback function called on each frame with {t, point} parameters
+     * @returns {Promise<THREE.Vector3>} Promise that resolves with the final Vector3 position when animation completes
+     * 
+     * @example
+     * // Animate camera position to a new location
+     * const startPos = new THREE.Vector3(0, 0, 100);
+     * const endPos = new THREE.Vector3(50, 25, 75);
+     * const finalPos = await TransformUtils.animatePointAsync(startPos, endPos, {
+     *   duration: 1000,
+     *   onUpdate: ({t, point}) => {
+     *     console.log(`Animation progress: ${(t * 100).toFixed(1)}%`);
+     *     viewer.navigation.setPosition(point);
+     *   }
+     * });
+     * 
+     * // Animate with custom easing for camera target movement
+     * await TransformUtils.animatePointAsync(currentTarget, newTarget, {
+     *   duration: 800,
+     *   easing: t => t * t * (3 - 2 * t), // smoothstep
+     *   onUpdate: ({point}) => viewer.navigation.setTarget(point)
+     * });
+     */
+    static async animatePointAsync(start, end,  opts = {
+        duration: 600,
+        easing: null,
+        onUpdate: null
+    }) {
+
+        let animHandle = null;
+        if (!opts.easing) {
+            opts.easing = (t) => (t * t * (3 - 2 * t));
+        }
+
+        opts.duration = opts.duration || 600;
+        if (opts.duration <= 0) opts.duration = 1; // prevent div/0
+
+        const { duration, easing, onUpdate } = opts;
+
+        return new Promise((resolve) => {
+            const p0 = start.clone();
+            const p1 = end.clone();
+            const p = new THREE.Vector3();
+
+            const t0 = performance.now();
+            if (animHandle) cancelAnimationFrame(animHandle);
+
+            function tick(now) {
+                const rawT = Math.min(1, (now - t0) / duration);
+                const t = easing(rawT);
+
+                p.copy(p0).lerp(p1, t);
+
+                if (onUpdate) onUpdate({ t, point: p.clone() });
+
+                if (rawT < 1) {
+                    animHandle = requestAnimationFrame(tick);
+                } else {
+                    animHandle = null;
+                    resolve(p.clone());
+                }
+            }
+
+            animHandle = requestAnimationFrame(tick);
+        });
+    }
 }
 
 // r71 compatibility: Math.degToRad helper
