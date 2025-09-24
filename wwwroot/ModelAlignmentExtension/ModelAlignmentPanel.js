@@ -757,7 +757,9 @@ class ModelAlignmentPanel extends Autodesk.Viewing.UI.DockingPanel {
             this.fromZ.value = point.z?.toFixed(3);
             this.fromPoint = point.clone();
 
-            this.pickAlignPoint(PointToPointPickerTypes.To);
+            if (!this.toPoint) {
+                this.pickAlignPoint(PointToPointPickerTypes.To);
+            }
         } else if (type === PointToPointPickerTypes.To && point) {
             this.toX.value = point.x?.toFixed(3);
             this.toY.value = point.y?.toFixed(3);

@@ -22,6 +22,8 @@ import { PointPickerTool, PointPickerEvents } from './PointPicker.js';
 import { TagOverlay } from './TagOverlay.js';
 import { Tag, CrossTag } from './Tag.js';
 import { HudHint } from './HudHint.js';
+import { SvgOverlay } from './SvgOverlay.js';
+import { SvgLine, SvgLineStyle } from './SvgLine.js';
 
 /** Name constant for the overlay scene used by the PointToPointPicker */
 const PointToPointPickerOverlayName = 'das.overlay-point-to-point-picker';
@@ -97,6 +99,7 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
      * @param {Object} [options={}] - Configuration options
      * @param {Object} [options.snapper] - Custom snapper instance
      * @param {Object} [options.snapperOptions] - Options for the snapper
+     * @param {boolean} [options.useSvg] - Whether to use SVG for the line overlay
      */
     constructor(viewer, options = {}) {
         super();
@@ -109,9 +112,14 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
         this.options = options || {};
         this.fromPoint = null;
         this.toPoint = null;
-        this.tagOverlay = null;
         this.unitHandler = null;
+
+        // For SVG line
+        this.SvgOverlay = null;
+        this.useSvg = options.useSvg || true;
+        // For WebGL line
         this.lineMat = null;
+        // For previous line
         this.prevLine = null;
 
         // Tag overlay & instances
@@ -206,18 +214,26 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
     }
 
     /**
-     * Ensures the line overlay scene is created for drawing connection lines.
-     * Creates the overlay scene and initializes the line material for the dashed line
-     * that connects the "From" and "To" points.
+     * Ensures the line overlay is created for drawing connection lines.
+     * Creates either a WebGL overlay scene with THREE.js line material or an SVG overlay
+     * based on the useSvg configuration option. Initializes the appropriate resources
+     * for rendering dashed lines that connect the "From" and "To" points.
      */
     ensureLineOverlay() {
-        // The connection line between fromTag and toTag
-        if (!this.viewer.overlays.hasScene(PointToPointPickerOverlayName)) {
-            this.viewer.overlays.addScene(PointToPointPickerOverlayName);
-        }
+        if (!this.useSvg) {
+            // The connection line between fromTag and toTag
+            if (!this.viewer.overlays.hasScene(PointToPointPickerOverlayName)) {
+                this.viewer.overlays.addScene(PointToPointPickerOverlayName);
+            }
 
-        if (!this.lineMat) {
-            this.lineMat = new THREE.LineDashedMaterial({ dashSize: 0.3, gapSize: 0.15, color: 0x00ffff, depthTest: false, depthWrite: false, transparent: true, opacity: 1.0 });
+            if (!this.lineMat) {
+                this.lineMat = new THREE.LineDashedMaterial({ dashSize: 0.3, gapSize: 0.15, color: 0x00ffff, depthTest: false, depthWrite: false, transparent: true, opacity: 1.0 });
+            }
+        } else {
+            if (!this.SvgOverlay) {
+                this.SvgOverlay = new SvgOverlay(this.viewer);
+                this.SvgOverlay.attach();
+            }
         }
     }
 
@@ -318,8 +334,8 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
 
     /**
      * Disposes of all resources and cleans up the PointToPointPicker instance.
-     * Removes event listeners, deregisters tools, clears overlays, disposes HUD hints,
-     * and releases memory. Should be called when the picker is no longer needed.
+     * Removes event listeners, deregisters tools, clears both SVG and WebGL overlays,
+     * disposes HUD hints, and releases memory. Should be called when the picker is no longer needed.
      */
     dispose() {
         this.stopPicking();
@@ -353,6 +369,12 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
             this.tagOverlay.clearAll();
             this.tagOverlay.detach();
             this.tagOverlay = null;
+        }
+
+        if (this.SvgOverlay) {
+            this.SvgOverlay.clearAll();
+            this.SvgOverlay.detach();
+            this.SvgOverlay = null;
         }
 
         if (this.hudHint) {
@@ -390,14 +412,23 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
 
     /**
      * Clears the connection line between points.
-     * Removes the line mesh from the overlay and disposes of its geometry and material.
+     * Removes the line from the overlay (either THREE.js mesh or SVG line) and disposes of its resources.
+     * Handles both WebGL and SVG line types based on the current line instance type.
      */
     clearLine() {
         if (this.prevLine) {
-            this.viewer.overlays.removeMesh(this.prevLine, PointToPointPickerOverlayName);
-            this.prevLine.geometry.dispose();
-            this.prevLine.material.dispose();
-            this.prevLine = null;
+            if (this.prevLine instanceof THREE.Line) {
+                this.viewer.overlays.removeMesh(this.prevLine, PointToPointPickerOverlayName);
+                this.prevLine.geometry.dispose();
+                this.prevLine.material.dispose();
+                this.prevLine = null;
+            }
+
+            if (this.prevLine instanceof SvgLine) {
+                this.prevLine.clear();
+                this.SvgOverlay.refresh();
+                this.prevLine = null;
+            }
         }
     }
 
@@ -442,17 +473,18 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
 
     /**
      * Draws a connection line between two points.
-     * Creates a dashed line geometry and adds it to the overlay scene.
+     * Creates either a THREE.js dashed line geometry or an SVG line based on the useSvg setting.
      * Only draws if no previous line exists.
      * @param {THREE.Vector3} startPoint - The starting point of the line
      * @param {THREE.Vector3} endPoint - The ending point of the line
      */
     drawLine(startPoint, endPoint) {
-        if (this.prevLine) {
+        // Draw only if no previous line exists
+        if (this.prevLine || !startPoint || !endPoint) {
             return;
         }
 
-        if (startPoint && endPoint) {
+        if (!this.useSvg) {
             const lineGeo = new THREE.BufferGeometry();
             const lineIndices = [];
             const lineVertices = [];
@@ -476,13 +508,21 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
 
             this.viewer.overlays.addMesh(line, PointToPointPickerOverlayName);
             this.prevLine = line;
+        } else {
+            const lineStyle = new SvgLineStyle({ color: '#00ffff', dash: '6,6', width: 2, opacity: 0.8 });
+            const line = new SvgLine(lineStyle);
+            line.setWorld(startPoint, endPoint);
+            this.prevLine = line;
+
+            this.SvgOverlay.add(line);
+            this.SvgOverlay.refresh();
         }
     }
 
     /**
      * Updates an existing line with new start and end points.
-     * If no line exists, creates a new one. Otherwise updates the geometry
-     * of the existing line with new vertex positions.
+     * If no line exists, creates a new one. Otherwise updates the geometry (for WebGL lines)
+     * or world coordinates (for SVG lines) of the existing line with new positions.
      * @param {THREE.Vector3} startPoint - The new starting point of the line
      * @param {THREE.Vector3} endPoint - The new ending point of the line
      */
@@ -490,15 +530,20 @@ class PointToPointPicker extends Autodesk.Viewing.EventDispatcher {
         if (!this.prevLine) {
             this.drawLine(startPoint, endPoint);
         } else {
-            const lineGeo = this.prevLine.geometry;
-            const lineVertices = [];
-            lineVertices.push(...startPoint.toArray());
-            lineVertices.push(...endPoint.toArray());
-            lineGeo.attributes.position.array = new Float32Array(lineVertices);
-            lineGeo.attributes.position.needsUpdate = true;
-            lineGeo.computeBoundingSphere();
-            lineGeo.computeBoundingBox();
-            this.prevLine.computeLineDistances();
+            if (!this.useSvg) {
+                const lineGeo = this.prevLine.geometry;
+                const lineVertices = [];
+                lineVertices.push(...startPoint.toArray());
+                lineVertices.push(...endPoint.toArray());
+                lineGeo.attributes.position.array = new Float32Array(lineVertices);
+                lineGeo.attributes.position.needsUpdate = true;
+                lineGeo.computeBoundingSphere();
+                lineGeo.computeBoundingBox();
+                this.prevLine.computeLineDistances();
+            } else {
+                this.prevLine.setWorld(startPoint, endPoint);
+                this.SvgOverlay.refresh();
+            }
         }
     }
 
