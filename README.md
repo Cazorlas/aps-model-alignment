@@ -21,6 +21,12 @@ This sample demonstrates how to manage 3D model alignments in your own APS Viewe
 ![thumbnail-1](thumbnail-1.png)
 ![thumbnail-2](thumbnail-2.png)
 
+## Demonstration
+
+[![](http://img.youtube.com/vi/ytHFNRIZ90Q/0.jpg)](http://www.youtube.com/watch?v=ytHFNRIZ90Q "Demo the model Alignment management within Autodesk APS Viewer")
+
+[Click here or click on the above picture to view the video](http://www.youtube.com/watch?v=ytHFNRIZ90Q)
+
 ## Development
 
 ### Prerequisites
