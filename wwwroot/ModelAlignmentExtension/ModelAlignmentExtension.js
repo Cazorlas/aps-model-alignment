@@ -20,6 +20,7 @@ import { PointToPointPicker, PointToPointPickerEvents, PointToPointPickerTypes }
 import { TransformUtils } from './TransformUtils.js';
 import { ModelUtils } from './ModelUtils.js';
 import { ModelAlignmentPanel } from './ModelAlignmentPanel.js';
+import { easeInOutCubic } from './AnimationEasingOptions.js';
 
 const EXT_NAME = 'Autodesk.DeveloperAdvocacySupport.ModelAlignmentExtension';
 const Events = {
@@ -85,6 +86,7 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
         this.createUI = this.createUI.bind(this);
         this.onToolbarCreated = this.onToolbarCreated.bind(this);
         this.onPanelVisibilityChanged = this.onPanelVisibilityChanged.bind(this);
+        this.onModelTransformed = this.onModelTransformed.bind(this);
     }
 
     /**
@@ -257,6 +259,33 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
     }
 
     /**
+     * Handles model transformation events from the viewer.
+     * Called when a model transformation event is received, typically from internal
+     * operations or external sources. Synchronizes the accumulated state and re-dispatches
+     * the event to maintain consistency across all extension components.
+     * 
+     * @param {Object} event - The model transformation event object
+     * @param {number} event.modelId - The ID of the model that was transformed
+     * @returns {void} Returns early if event or modelId is invalid
+     * 
+     * @example
+     * // This method is typically called automatically by the viewer
+     * // but can be triggered manually for testing or integration
+     * const transformEvent = { modelId: 5 };
+     * extension.onModelTransformed(transformEvent);
+     */
+    onModelTransformed(event) {
+        const modelId = event?.modelId;
+        if (!modelId) return;
+
+        const model = ModelUtils.findModelById(this.viewer, modelId);
+        if (!model) return;
+
+        this.syncAccFromModel(model);
+        this.dispatchEvent({ type: Events.ModelTransformed, modelId: model.id, matrix: event.matrix });
+    }
+
+    /**
      * Synchronizes the accumulated transformation state from a model's current placement matrix.
      * Extracts translation and Z-rotation values from the model's placement transform
      * and stores them in the internal accumulated state tracking.
@@ -307,6 +336,7 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
      * Starts the point-to-point picker to capture a specific point (From or To) and returns
      * a promise that resolves with the selected point data when picking is complete.
      * 
+     * @async
      * @param {string} type - The type of point to pick (use PointToPointPickerTypes.From or PointToPointPickerTypes.To)
      * @returns {Promise<Object>} Promise that resolves with picked point data
      * @returns {THREE.Vector3} returns.point - The picked 3D world position (cloned)
@@ -378,13 +408,18 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
      * Moves the model so its bounding box center aligns with the current view target,
      * then updates the accumulated transformation state to reflect the new position.
      * 
+     * @async
      * @param {Autodesk.Viewing.Model} model - The model to fit to view
      * @returns {Promise<void>} Promise that resolves when the animation completes
      */
     async fitToView(model) {
         if (!model) return;
 
-        await TransformUtils.animateModelToViewTarget(this.viewer, model, 600);
+        await TransformUtils.animateModelToViewTargetAsync(this.viewer, model, {
+            duration: 1500,
+            easing: easeInOutCubic,
+            onUpdate: this.onModelTransformed
+         });
         this.syncAccFromModel(model);
 
         this.dispatchEvent({ type: Events.ModelTransformed, modelId: model.id });
@@ -395,6 +430,7 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
      * Applies a smooth animated translation to move the model by the specified
      * displacement values in world coordinates, then updates the accumulated state.
      * 
+     * @async
      * @param {Autodesk.Viewing.Model} model - The model to translate
      * @param {number} dx - Translation distance along the X-axis
      * @param {number} dy - Translation distance along the Y-axis  
@@ -404,7 +440,12 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
     async applyTranslation(model, dx, dy, dz) {
         if (!model) return;
 
-        await TransformUtils.translateModel(this.viewer, model, dx, dy, dz, { animate: true, duration: 400 });
+        await TransformUtils.translateModelAsync(this.viewer, model, dx, dy, dz, {
+            animate: true,
+            duration: 1500,
+            easing: easeInOutCubic,
+            onUpdate: this.onModelTransformed
+        });
         this.syncAccFromModel(model);
 
         this.dispatchEvent({ type: Events.ModelTransformed, modelId: model.id });
@@ -416,6 +457,7 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
      * transformation state. The rotation is applied relative to the model's current rotation.
      * Uses the accumulated state to maintain proper transformation composition.
      * 
+     * @async
      * @param {Autodesk.Viewing.Model} model - The model to rotate
      * @param {number} dRotDegZ - Rotation increment in degrees around the Z-axis (positive = counter-clockwise)
      * @returns {Promise<void>} Promise that resolves when the rotation is applied
@@ -443,6 +485,7 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
      * Sets the model's placement transform to the provided matrix and updates
      * the accumulated transformation state to reflect the new transform.
      * 
+     * @async
      * @param {Autodesk.Viewing.Model} model - The model to transform
      * @param {THREE.Matrix4} matrix - The transformation matrix to apply
      * @returns {Promise<void>} Promise that resolves when the transform is applied
@@ -450,7 +493,11 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
     async applyMatrix(model, matrix) {
         if (!model || !matrix) return;
 
-        await TransformUtils.setPlacementMatrix(this.viewer, model, matrix);
+        await TransformUtils.animateModelMatrixAsync(this.viewer, model, null, matrix, {
+            duration: 1500,
+            easing: easeInOutCubic,
+            onUpdate: this.onModelTransformed
+        });
         this.syncAccFromModel(model);
 
         this.dispatchEvent({ type: Events.ModelTransformed, modelId: model.id });
@@ -484,6 +531,7 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
      * Retrieves the ModelAlignmentService extension if it's available,
      * or returns null if the service is not registered or loaded.
      * 
+     * @async
      * @returns {Promise<Object|null>} The alignment service extension instance, or null if not available
      * @throws {Error} Logs warning if alignment service extension is not available
      * 
@@ -512,6 +560,7 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
      * then attempts to save it using the alignment service or local storage fallback.
      * Includes model metadata like URN, name, and viewable ID for complete persistence.
      * 
+     * @async
      * @param {Autodesk.Viewing.Model} model - The model whose transformation to save
      * @returns {Promise<void>} Promise that resolves when save operation completes
      * @throws {Error} Logs warnings if model data is missing or alignment service unavailable
@@ -579,6 +628,35 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
         }
     }
 
+    /**
+     * Downloads transformation data as a JSON file to the user's local system.
+     * Creates a downloadable JSON file containing model transformation data when
+     * server-side persistence is unavailable. This provides a fallback mechanism
+     * for users to save and potentially restore transformation states manually.
+     * 
+     * @param {Object} data - The transformation data object to save
+     * @param {string} data.urn - The model's URN identifier
+     * @param {string} data.name - The human-readable model name
+     * @param {string} data.viewableId - The viewable ID from the document node
+     * @param {number[]} data.transform - The transformation matrix as an array of 16 elements
+     * @param {Object} data.accumulation - The accumulated transformation state
+     * @param {string} [filename='model-transform.json'] - The filename for the downloaded file
+     * @returns {void} Returns early if data is null or undefined
+     * 
+     * @example
+     * // Save transformation data with default filename
+     * const transformData = {
+     *   urn: 'urn:adsk.objects:os.object:bucket/model.rvt',
+     *   name: 'Building Model',
+     *   viewableId: 'viewable-123',
+     *   transform: [...matrixElements],
+     *   accumulation: { translation: {x:0, y:0, z:0}, rotDegZ: 0 }
+     * };
+     * extension.saveTransformDataAsJsonFile(transformData);
+     * 
+     * // Save with custom filename
+     * extension.saveTransformDataAsJsonFile(transformData, 'building-alignment.json');
+     */
     saveTransformDataAsJsonFile(data, filename = 'model-transform.json') {
         if (!data) return;
 
@@ -599,7 +677,6 @@ class ModelAlignmentExtension extends Autodesk.Viewing.Extension {
      * dependencies including snapping extension and point-to-point picker. This ensures
      * the extension is fully ready for use immediately after loading.
      * 
-     * @async
      * @returns {boolean} Always returns true to indicate successful loading
      * 
      * @example

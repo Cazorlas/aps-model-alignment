@@ -233,6 +233,31 @@ class ModelUtils {
        return ModelUtils.getModelName(model) || `Model id=${model.id}`;
     }
 
+    /**
+     * Extracts viewable metadata from the specified model.
+     * Retrieves key identifying information about the model including its viewable ID
+     * and URN (Uniform Resource Name). This data is useful for model persistence,
+     * server-side operations, or cross-session model identification.
+     * 
+     * @param {Autodesk.Viewing.Model} model - The model to extract viewable data from
+     * @returns {Object|null} Object containing viewable metadata, or null if model is invalid
+     * @returns {string} returns.viewableId - The viewable ID from the document node
+     * @returns {string} returns.urn - The URN (Uniform Resource Name) of the model
+     * 
+     * @example
+     * // Get viewable data for model identification
+     * const viewableData = ModelUtils.getViewableData(model);
+     * if (viewableData) {
+     *   console.log('Viewable ID:', viewableData.viewableId);
+     *   console.log('URN:', viewableData.urn);
+     * }
+     * 
+     * // Use viewable data for server API calls
+     * const modelMetadata = ModelUtils.getViewableData(selectedModel);
+     * if (modelMetadata) {
+     *   await saveModelTransform(modelMetadata.urn, modelMetadata.viewableId, transformMatrix);
+     * }
+     */
     static getViewableData(model) {
         if (!model) return null;
 

@@ -716,6 +716,7 @@ class ModelAlignmentPanel extends Autodesk.Viewing.UI.DockingPanel {
      * Fits the selected model to the current view.
      * Animates the camera to show the selected model optimally and refreshes the display.
      * 
+     * @async
      * @returns {Promise<void>} Promise that resolves when the fit-to-view operation completes
      */
     async fitToView() {
@@ -730,6 +731,7 @@ class ModelAlignmentPanel extends Autodesk.Viewing.UI.DockingPanel {
      * updates the corresponding input fields with the picked coordinates. If picking a "From" point,
      * automatically triggers picking of a "To" point afterward for streamlined workflow.
      * 
+     * @async
      * @param {string} type - The type of point to pick (use PointToPointPickerTypes.From or PointToPointPickerTypes.To)
      * @returns {Promise<void>} Promise that resolves when point picking is complete
      * @throws {Error} Rejects if point picking fails or host is not available
@@ -789,6 +791,9 @@ class ModelAlignmentPanel extends Autodesk.Viewing.UI.DockingPanel {
         this.offY.value = '';
         this.offZ.value = '';
 
+        this.fromPoint = null;
+        this.toPoint = null;
+
         this.host.clearPicks();
     }
 
@@ -798,6 +803,7 @@ class ModelAlignmentPanel extends Autodesk.Viewing.UI.DockingPanel {
      * this transformation to move the selected model. Updates the offset input fields
      * and clears the picked points afterward.
      * 
+     * @async
      * @returns {Promise<void>} Promise that resolves when the offset transformation is applied
      * @throws {Error} Rejects if model is not found or transformation fails
      * 
@@ -815,6 +821,9 @@ class ModelAlignmentPanel extends Autodesk.Viewing.UI.DockingPanel {
         const model = ModelUtils.findModelById(this.viewer, this.selectedModelId);
         if (!model) return;
 
+        this.host.clearPicks(); // clear any active pick handlers
+
+        // Compute translation vector
         const delta = new THREE.Vector3().subVectors(this.toPoint, this.fromPoint);
         await this.host.applyTranslation(model, delta.x, delta.y, delta.z);
 
@@ -832,6 +841,7 @@ class ModelAlignmentPanel extends Autodesk.Viewing.UI.DockingPanel {
      * and applies them as an absolute transformation matrix to the selected model.
      * The transformation combines translation and Z-axis rotation.
      * 
+     * @async
      * @returns {Promise<void>} Promise that resolves when the position transformation is applied
      * @throws {Error} Rejects if model is not found or transformation fails
      * 
@@ -869,6 +879,7 @@ class ModelAlignmentPanel extends Autodesk.Viewing.UI.DockingPanel {
      * This method is currently not implemented but is intended to apply
      * rotation-only transformations to the selected model.
      * 
+     * @async
      * @returns {Promise<void>} Promise that resolves when rotation is applied
      * @todo Implement rotation transformation logic
      * 
@@ -894,6 +905,7 @@ class ModelAlignmentPanel extends Autodesk.Viewing.UI.DockingPanel {
      * This method is currently not implemented but is intended to persist
      * the current model transformations for later restoration or export.
      * 
+     * @async
      * @returns {void}
      * @todo Implement transform saving functionality
      * 

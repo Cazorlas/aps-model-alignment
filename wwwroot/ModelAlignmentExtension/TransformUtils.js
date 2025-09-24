@@ -31,10 +31,10 @@
  * const matrix = TransformUtils.getPlacementMatrix(model);
  * 
  * // Translate a model with animation
- * await TransformUtils.translateModel(viewer, model, 10, 0, 0, { animate: true });
+ * await TransformUtils.translateModelAsync(viewer, model, 10, 0, 0, { animate: true });
  * 
  * // Animate model to fit current view target
- * await TransformUtils.animateModelToViewTarget(viewer, model, 600);
+ * await TransformUtils.animateModelToViewTargetAsync(viewer, model, { duration: 600 });
  */
 class TransformUtils {
     /**
@@ -121,22 +121,44 @@ class TransformUtils {
     /**
      * Animates a model to move its center to the current view target.
      * Performs a smooth animated transition that moves the model's bounding box center
-     * to align with the viewer's current camera target point. Uses eased interpolation
-     * for smooth visual feedback.
+     * to align with the viewer's current camera target point. Uses configurable easing
+     * interpolation for smooth visual feedback with progress callbacks.
      * 
+     * @async
      * @param {Autodesk.Viewing.GuiViewer3D} viewer - The viewer instance
      * @param {Autodesk.Viewing.Model} model - The model to animate
-     * @param {number} [duration=400] - Animation duration in milliseconds
+     * @param {Object} [opts={}] - Animation configuration options
+     * @param {number} [opts.duration=400] - Animation duration in milliseconds
+     * @param {Function|null} [opts.easing=null] - Easing function that takes normalized time (0-1) and returns eased value. If null, defaults to easeInOutQuad
+     * @param {Function|null} [opts.onUpdate=null] - Callback function called on each frame with {t, matrix, modelId} parameters
      * @returns {Promise<void>} Promise that resolves when animation completes
      * 
      * @example
-     * // Animate model to view target over 600ms
-     * await TransformUtils.animateModelToViewTarget(viewer, model, 600);
+     * // Animate model to view target with default settings
+     * await TransformUtils.animateModelToViewTargetAsync(viewer, model);
+     * 
+     * // Animate with custom duration and progress callback
+     * await TransformUtils.animateModelToViewTargetAsync(viewer, model, {
+     *   duration: 800,
+     *   easing: t => t * t * (3 - 2 * t), // smoothstep
+     *   onUpdate: ({t, matrix, modelId}) => console.log(`Progress: ${(t * 100).toFixed(1)}%`)
+     * });
      */
-    static async animateModelToViewTarget(viewer, model, duration = 400) {
+    static async animateModelToViewTargetAsync(viewer, model, opts = {
+        duration: 400,
+        easing: null,
+        onUpdate: null
+    }) {
         if (!viewer || !model) return;
 
         let animHandle = null;
+        if (!opts.easing) {
+            opts.easing = (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
+        }
+
+        opts.duration = opts.duration || 400;
+        if(opts.duration <= 0) opts.duration = 1; // prevent div/0
+
         return new Promise((resolve) => {
             // Compute start/end positions
             const box = model.getBoundingBox();
@@ -150,29 +172,26 @@ class TransformUtils {
 
             const endPos = sPos.clone().add(delta);
 
-            const self = this;
-            if (animHandle) {
-                cancelAnimationFrame(animHandle);
-            }
+            if (animHandle) cancelAnimationFrame(animHandle);
 
             const start = performance.now();
             function tick(t0) {
                 const now = performance.now();
-                const k = Math.min(1, (now - start) / duration);
+                const k = Math.min(1, (now - start) / opts.duration);
                 // easeInOutQuad
-                const e = k < 0.5 ? 2 * k * k : -1 + (4 - 2 * k) * k;
+                const e = opts.easing(k);
 
                 const pos = sPos.clone().lerp(endPos, e);
                 const m = new THREE.Matrix4().compose(pos, sQuat, sScale);
-                // viewer.impl.setPlacementTransform(model, m);
-                // viewer.impl.sceneUpdated(true);
-
                 TransformUtils.setPlacementMatrix(viewer, model, m);
 
+                if (opts.onUpdate) opts.onUpdate({ e, matrix: m, modelId: model.id });
+                // Note: onUpdate callback would be available if passed via options
+
                 if (k < 1) {
-                    self.animHandle = requestAnimationFrame(tick);
+                    animHandle = requestAnimationFrame(tick);
                 } else {
-                    self.animHandle = null;
+                    animHandle = null;
                     resolve();
                 }
             }
@@ -181,26 +200,48 @@ class TransformUtils {
     }
 
     /**
-     * Smoothly translates a model by the specified offset over a given duration.
+     * Smoothly translates a model by the specified offset with configurable animation settings.
      * Performs an animated translation using the model's current rotation and scale,
-     * interpolating only the position component with eased timing.
+     * interpolating only the position component with configurable easing timing.
+     * Supports custom easing functions and progress callbacks for advanced control.
      * 
+     * @async
      * @param {Autodesk.Viewing.GuiViewer3D} viewer - The viewer instance
      * @param {Autodesk.Viewing.Model} model - The model to translate
-     * @param {number} dx - Translation distance along X-axis
-     * @param {number} dy - Translation distance along Y-axis  
-     * @param {number} dz - Translation distance along Z-axis
-     * @param {number} [duration=400] - Animation duration in milliseconds
+     * @param {number} dx - Translation distance along X-axis in world coordinates
+     * @param {number} dy - Translation distance along Y-axis in world coordinates
+     * @param {number} dz - Translation distance along Z-axis in world coordinates
+     * @param {Object} [opts={}] - Animation configuration options
+     * @param {number} [opts.duration=400] - Animation duration in milliseconds
+     * @param {Function|null} [opts.easing=null] - Easing function that takes normalized time (0-1) and returns eased value. If null, defaults to easeInOutQuad
+     * @param {Function|null} [opts.onUpdate=null] - Callback function called on each frame with {t, matrix, modelId} parameters
      * @returns {Promise<void>} Promise that resolves when animation completes
      * 
      * @example
-     * // Animate model translation by (10, 5, 0) over 500ms
-     * await TransformUtils.animateTranslateModel(viewer, model, 10, 5, 0, 500);
+     * // Animate model translation with default easing
+     * await TransformUtils.animateTranslateModelAsync(viewer, model, 10, 5, 0);
+     * 
+     * // Animate with custom duration and easing
+     * await TransformUtils.animateTranslateModelAsync(viewer, model, 25, 0, 0, {
+     *   duration: 800,
+     *   easing: t => t * t * (3 - 2 * t), // smoothstep
+     *   onUpdate: ({t}) => console.log(`Progress: ${(t * 100).toFixed(1)}%`)
+     * });
      */
-    static animateTranslateModel(viewer, model, dx, dy, dz, duration = 400) {
+    static async animateTranslateModelAsync(viewer, model, dx, dy, dz, opts = {
+        duration: 400,
+        easing: null,
+        onUpdate: null
+    }) {
         if (!viewer || !model) return;
 
         let animHandle = null;
+        if (!opts.easing) {
+            opts.easing = (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
+        }
+
+        opts.duration = opts.duration || 400;
+        if(opts.duration <= 0) opts.duration = 1; // prevent div/0
 
         return new Promise((resolve) => {
             // Start placement
@@ -211,19 +252,22 @@ class TransformUtils {
             const p1 = new THREE.Vector3(p0.x + dx, p0.y + dy, p0.z + dz);
 
             // Ease (same feel as your view-target anim)
-            const easeInOutQuad = (k) => (k < 0.5 ? 2 * k * k : -1 + (4 - 2 * k) * k);
+            // const easeInOutQuad = (k) => (k < 0.5 ? 2 * k * k : -1 + (4 - 2 * k) * k);
 
             let t0 = null;
             if (animHandle) cancelAnimationFrame(animHandle);
 
             function frame(ts) {
                 if (t0 === null) t0 = ts;
-                const k = Math.min(1, (ts - t0) / Math.max(1, duration | 0));
-                const e = easeInOutQuad(k);
+                const k = Math.min(1, (ts - t0) / Math.max(1, opts.duration | 0));
+                const e = opts.easing(k);
                 const pt = new THREE.Vector3().lerpVectors(p0, p1, e);
                 const Mt = new THREE.Matrix4().compose(pt, q0, s0);
 
                 TransformUtils.setPlacementMatrix(viewer, model, Mt);
+
+                if (opts.onUpdate) opts.onUpdate({ e, matrix: Mt, modelId: model.id });
+                // Note: onUpdate callback would be available if passed via options
 
                 if (k < 1) {
                     animHandle = requestAnimationFrame(frame);
@@ -239,36 +283,55 @@ class TransformUtils {
     /**
      * Translates a model by the specified offset with optional animation.
      * Provides both immediate and animated translation modes. When animated,
-     * uses smooth eased interpolation for visual feedback.
+     * uses smooth eased interpolation for visual feedback. Supports custom
+     * easing functions and progress callbacks for advanced control.
      * 
+     * @async
      * @param {Autodesk.Viewing.GuiViewer3D} viewer - The viewer instance
      * @param {Autodesk.Viewing.Model} model - The model to translate
-     * @param {number} dx - Translation distance along X-axis
-     * @param {number} dy - Translation distance along Y-axis
-     * @param {number} dz - Translation distance along Z-axis
-     * @param {Object} [opts={}] - Translation options
+     * @param {number} dx - Translation distance along X-axis in world coordinates
+     * @param {number} dy - Translation distance along Y-axis in world coordinates
+     * @param {number} dz - Translation distance along Z-axis in world coordinates
+     * @param {Object} [opts={}] - Translation configuration options
      * @param {boolean} [opts.animate=false] - Whether to animate the translation
      * @param {number} [opts.duration=400] - Animation duration in milliseconds (if animated)
-     * @param {Function} [opts.onDone] - Callback function called when translation completes
+     * @param {Function|null} [opts.easing=null] - Easing function that takes normalized time (0-1) and returns eased value. If null, defaults to easeInOutQuad
+     * @param {Function|null} [opts.onUpdate=null] - Callback function called on each frame with {t, matrix, modelId} parameters
      * @returns {Promise<void>} Promise that resolves when translation completes
      * 
      * @example
-     * // Immediate translation
-     * await TransformUtils.translateModel(viewer, model, 5, 0, 10);
+     * // Immediate translation (non-animated)
+     * await TransformUtils.translateModelAsync(viewer, model, 5, 0, 10);
      * 
-     * // Animated translation with custom duration
-     * await TransformUtils.translateModel(viewer, model, 5, 0, 10, {
+     * // Animated translation with custom settings
+     * await TransformUtils.translateModelAsync(viewer, model, 5, 0, 10, {
      *   animate: true,
      *   duration: 600,
-     *   onDone: () => console.log('Translation complete')
+     *   easing: t => t * t * (3 - 2 * t), // smoothstep easing
+     *   onUpdate: ({t, matrix, modelId}) => console.log(`Progress: ${(t * 100).toFixed(1)}%`)
      * });
      */
-    static async translateModel(viewer, model, dx, dy, dz, opts = {}) {
-        // opts?: { animate?: boolean, duration?: number, onDone?: ()=>void }
+    static async translateModelAsync(viewer, model, dx, dy, dz, opts = {
+        animate: false,
+        duration: 400,
+        easing: null,
+        onUpdate: null
+    }) {
+        // opts?: { animate?: boolean, duration?: number, easing: (t: number) => number, onUpdate?: (progress: { t: number }) => void }
         if (!viewer || !model) return;
+
+        if (!opts.easing) {
+            opts.easing = (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
+        }
+
+        opts.animate = !!opts.animate;
+
+        opts.duration = opts.duration || 400;
+        if(opts.duration <= 0) opts.duration = 1; // prevent div/0
+
         return new Promise(async (resolve) => {
             if (opts.animate) {
-                await TransformUtils.animateTranslateModel(viewer, model, dx, dy, dz, opts.duration || 400);
+                await TransformUtils.animateTranslateModelAsync(viewer, model, dx, dy, dz, opts);
                 return resolve();
             }
 
@@ -276,6 +339,8 @@ class TransformUtils {
             const M = TransformUtils.getPlacementMatrix(model);
             M.multiplyMatrices(T, M);
             TransformUtils.setPlacementMatrix(viewer, model, M);
+            if (opts.onUpdate) opts.onUpdate({ t: 1, matrix: M, modelId: model.id }); // t=1 for immediate completion
+
             return resolve();
         });
     }
@@ -310,15 +375,116 @@ class TransformUtils {
     static composeMatrix(translation, rotation, scale) {
         const T = new THREE.Matrix4().makeTranslation(translation.x || 0, translation.y || 0, translation.z || 0);
         const R = new THREE.Matrix4().makeRotationFromEuler(rotation);
-        
+
         // If scale is provided, create a scale matrix, otherwise use identity (no scaling)
-        const S = scale ? 
-            new THREE.Matrix4().makeScale(scale.x || 1, scale.y || 1, scale.z || 1) : 
+        const S = scale ?
+            new THREE.Matrix4().makeScale(scale.x || 1, scale.y || 1, scale.z || 1) :
             new THREE.Matrix4(); // Identity matrix (no scaling)
-        
+
         // Apply transformations in order: T * R * S (Scale first, then Rotate, then Translate)
         return new THREE.Matrix4().multiplyMatrices(T, new THREE.Matrix4().multiplyMatrices(R, S));
     }
+
+    /**
+     * Animates a model transformation from one matrix to another with smooth interpolation.
+     * Performs a smooth animated transition between two transformation matrices by decomposing
+     * them into position, rotation, and scale components, then interpolating each component
+     * separately using quaternion slerping for rotation and linear interpolation for position and scale.
+     * 
+     * @async
+     * @param {Autodesk.Viewing.GuiViewer3D} viewer - The viewer instance
+     * @param {Autodesk.Viewing.Model} model - The model to animate
+     * @param {THREE.Matrix4} mFrom - Starting transformation matrix. If null, uses model's current matrix
+     * @param {THREE.Matrix4} mTo - Target transformation matrix to animate to
+     * @param {Object} [options={}] - Animation configuration options
+     * @param {number} [options.duration=600] - Animation duration in milliseconds
+     * @param {Function|null} [options.easing=null] - Easing function that takes normalized time (0-1) and returns eased value. If null, defaults to smoothstep easing
+     * @param {Function|null} [options.onUpdate=null] - Callback function called on each frame with {t, matrix} parameters
+     * @returns {Promise<THREE.Matrix4>} Promise that resolves with the final transformation matrix when animation completes
+     * 
+     * @example
+     * // Animate model from current position to a new transform
+     * const targetMatrix = new THREE.Matrix4().makeTranslation(10, 0, 5);
+     * const finalMatrix = await TransformUtils.animateModelMatrixAsync(viewer, model, null, targetMatrix, {
+     *   duration: 1000,
+     *   easing: t => t * t, // Quadratic easing
+     *   onUpdate: ({t, matrix}) => console.log(`Progress: ${(t * 100).toFixed(1)}%`)
+     * });
+     * 
+     * // Animate between two specific matrices with custom easing
+     * const fromMatrix = new THREE.Matrix4().makeTranslation(0, 0, 0);
+     * const toMatrix = new THREE.Matrix4().makeTranslation(20, 10, 0);
+     * await TransformUtils.animateModelMatrixAsync(viewer, model, fromMatrix, toMatrix, {
+     *   duration: 800,
+     *   easing: t => 0.5 * (1 - Math.cos(Math.PI * t)) // Sine wave easing
+     * });
+     */
+    static async animateModelMatrixAsync(viewer, model, mFrom, mTo, opts = {
+        duration: 600,
+        easing: null,
+        onUpdate: null
+    }) {
+        if (!viewer || !model) return;
+
+        let animHandle = null;
+        if (!opts.easing) {
+            opts.easing = (t) => ( t * t * (3 - 2 * t));
+        }
+
+        opts.duration = opts.duration || 600;
+        if(opts.duration <= 0) opts.duration = 1; // prevent div/0
+
+        return new Promise((resolve) => {
+            const startM = (mFrom || TransformUtils.getPlacementMatrix(model)).clone();
+
+            const endM = mTo.clone();
+
+            // Decompose
+            const p0 = new THREE.Vector3(), p1 = new THREE.Vector3();
+            const q0 = new THREE.Quaternion(), q1 = new THREE.Quaternion();
+            const s0 = new THREE.Vector3(), s1 = new THREE.Vector3();
+            startM.decompose(p0, q0, s0);
+            endM.decompose(p1, q1, s1);
+            if (q0.dot(q1) < 0) q1.multiplyScalar(-1);
+
+            // Temps
+            const p = new THREE.Vector3();
+            const q = new THREE.Quaternion();
+            const s = new THREE.Vector3();
+            const m = new THREE.Matrix4();
+
+            const apply = (mat) => {
+                TransformUtils.setPlacementMatrix(viewer, model, mat);
+            };
+
+            const t0 = performance.now();
+            if (animHandle) cancelAnimationFrame(animHandle);
+
+            function tick(now) {
+                const rawT = Math.min(1, (now - t0) / opts.duration);
+                const t = opts.easing(rawT);
+
+                p.copy(p0).lerp(p1, t);
+                s.copy(s0).lerp(s1, t);
+                q.slerpQuaternions(q0, q1, t);
+
+                m.compose(p, q, s);
+                apply(m);
+
+                if (opts.onUpdate) opts.onUpdate({ t, matrix: m, modelId: model.id });
+
+                if (rawT < 1) {
+                    animHandle = requestAnimationFrame(tick);
+                } else {
+                    animHandle = null;
+                    resolve(m);
+                }
+            }
+
+            animHandle = requestAnimationFrame(tick);
+        });
+    }
+
 }
 
 // r71 compatibility: Math.degToRad helper
